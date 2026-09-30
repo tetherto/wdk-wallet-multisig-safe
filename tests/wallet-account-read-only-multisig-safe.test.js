@@ -18,6 +18,8 @@ import { describe, expect, test, jest } from '@jest/globals'
 
 import { AbiCoder } from 'ethers'
 
+import { InvalidTokenError } from '@tetherto/wdk-wallet'
+
 import { WalletAccountReadOnlyMultisigSafe, SafeTxServiceCoordinator } from '../index.js'
 
 const ACCOUNT = {
@@ -470,32 +472,121 @@ describe('WalletAccountReadOnlyMultisigSafe', () => {
   })
 
   describe('quoteExecuteProposal', () => {
-    test('should include verificationGasLimit in the prefund quote for a no-paymaster operation', async () => {
+    const PAYMASTER_TOKEN_ADDRESS = '0x1234567890AbcdEF1234567890aBcdef12345678'
+    const ENTRY_POINT_ADDRESS = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789'
+    const DUMMY_EXCHANGE_RATE = '0x77359400'
+
+    const DUMMY_USER_OPERATION = {
+      nonce: '0',
+      initCode: '0x',
+      callGasLimit: '100000',
+      verificationGasLimit: '200000',
+      preVerificationGas: '50000',
+      maxFeePerGas: '1000000000',
+      maxPriorityFeePerGas: '1000000000',
+      paymasterAndData: '0x',
+      paymasterVerificationGasLimit: '0',
+      paymasterPostOpGasLimit: '0'
+    }
+
+    const DUMMY_PAYMASTER_USER_OPERATION = { ...DUMMY_USER_OPERATION, paymasterAndData: '0x' + 'ab'.repeat(40) }
+
+    const createAccount = (config, userOperation) => {
       const account = new WalletAccountReadOnlyMultisigSafe({
         ...MOCK_CONFIG,
+        ...config,
         safeOptions: { safeAddress: MOCK_SAFE_ADDRESS }
       })
-      account._coordinator = {
-        getProposal: jest.fn().mockResolvedValue({
-          userOperation: {
-            nonce: '0',
-            initCode: '0x',
-            callGasLimit: '100000',
-            verificationGasLimit: '200000',
-            preVerificationGas: '50000',
-            maxFeePerGas: '1000000000',
-            maxPriorityFeePerGas: '1000000000',
-            paymasterAndData: '0x',
-            paymasterVerificationGasLimit: '0',
-            paymasterPostOpGasLimit: '0'
-          }
-        })
-      }
+      account._coordinator = { getProposal: jest.fn().mockResolvedValue({ userOperation }) }
+      return account
+    }
+
+    test('should include verificationGasLimit in the prefund quote for a no-paymaster operation', async () => {
+      const account = createAccount({}, DUMMY_USER_OPERATION)
 
       const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
 
       expect(fee).toBe(350000000000000n)
       expect(account._coordinator.getProposal).toHaveBeenCalledWith(MOCK_SAFE_OP_HASH)
+    })
+
+    test('should return the prefund in wei when the account pays with native coins but the operation carries a paymaster', async () => {
+      const account = createAccount({}, DUMMY_PAYMASTER_USER_OPERATION)
+
+      const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      expect(fee).toBe(750000000000000n)
+    })
+
+    test('should return zero when the account is sponsored', async () => {
+      const account = createAccount({
+        paymasterUrl: 'https://api.candide.dev/paymaster/v3/sepolia/dummy-key',
+        isSponsored: true
+      }, DUMMY_PAYMASTER_USER_OPERATION)
+
+      const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      expect(fee).toBe(0n)
+    })
+
+    test('should return the fee in token units using the candide exchange rate', async () => {
+      const PAYMASTER_URL = 'https://api.candide.dev/paymaster/v3/sepolia/dummy-key'
+      const DUMMY_SUPPORTED_TOKENS = {
+        paymasterMetadata: { address: '0x' + 'cd'.repeat(20) },
+        tokens: [{ address: PAYMASTER_TOKEN_ADDRESS.toLowerCase(), exchangeRate: DUMMY_EXCHANGE_RATE }]
+      }
+      const account = createAccount({ paymasterUrl: PAYMASTER_URL, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS }, DUMMY_PAYMASTER_USER_OPERATION)
+      const sendRPCRequestMock = jest.fn().mockResolvedValue(DUMMY_SUPPORTED_TOKENS)
+      account._getPaymaster = jest.fn().mockReturnValue({ sendRPCRequest: sendRPCRequestMock })
+
+      const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      expect(account._getPaymaster).toHaveBeenCalledWith(PAYMASTER_URL, { chainId: 11155111n })
+      expect(sendRPCRequestMock).toHaveBeenCalledWith('pm_supportedERC20Tokens', [ENTRY_POINT_ADDRESS])
+      expect(fee).toBe(1500000n)
+    })
+
+    test('should return the fee in token units using the pimlico exchange rate', async () => {
+      const PAYMASTER_URL = 'https://api.pimlico.io/v2/11155111/rpc?apikey=dummy-key'
+      const DUMMY_TOKEN_QUOTES = {
+        quotes: [{ token: PAYMASTER_TOKEN_ADDRESS, exchangeRate: DUMMY_EXCHANGE_RATE, paymaster: '0x' + 'cd'.repeat(20) }]
+      }
+      const account = createAccount({ paymasterUrl: PAYMASTER_URL, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS }, DUMMY_PAYMASTER_USER_OPERATION)
+      const sendRPCRequestMock = jest.fn().mockResolvedValue(DUMMY_TOKEN_QUOTES)
+      account._getPaymaster = jest.fn().mockReturnValue({ sendRPCRequest: sendRPCRequestMock })
+
+      const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      expect(sendRPCRequestMock).toHaveBeenCalledWith('pimlico_getTokenQuotes', [{ tokens: [PAYMASTER_TOKEN_ADDRESS] }, ENTRY_POINT_ADDRESS, '0xaa36a7'])
+      expect(fee).toBe(1500000n)
+    })
+
+    test('should return the prefund in wei when the paymaster provider is unknown', async () => {
+      const account = createAccount({
+        paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+        paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS
+      }, DUMMY_PAYMASTER_USER_OPERATION)
+      account._getPaymaster = jest.fn()
+
+      const { fee } = await account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      expect(account._getPaymaster).not.toHaveBeenCalled()
+      expect(fee).toBe(750000000000000n)
+    })
+
+    test('should throw if the paymaster does not support the configured token', async () => {
+      const account = createAccount({
+        paymasterUrl: 'https://api.candide.dev/paymaster/v3/sepolia/dummy-key',
+        paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS
+      }, DUMMY_PAYMASTER_USER_OPERATION)
+      account._getPaymaster = jest.fn().mockReturnValue({
+        sendRPCRequest: jest.fn().mockResolvedValue({ paymasterMetadata: { address: '0x' + 'cd'.repeat(20) }, tokens: [] })
+      })
+
+      const promise = account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)
+
+      await expect(promise).rejects.toThrow(InvalidTokenError)
+      await expect(promise).rejects.toThrow(`The paymaster does not support the token set in the 'paymasterTokenAddress' option: ${PAYMASTER_TOKEN_ADDRESS}.`)
     })
   })
 

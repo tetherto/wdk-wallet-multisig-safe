@@ -83,20 +83,24 @@ const createMockSmartAccount = (overrides = {}) => ({
   ...overrides
 })
 
+const DUMMY_USER_OPERATION = {
+  nonce: '0',
+  initCode: '0x',
+  callGasLimit: '100000',
+  verificationGasLimit: '100000',
+  preVerificationGas: '50000',
+  maxFeePerGas: '1000000000',
+  maxPriorityFeePerGas: '1000000000',
+  paymasterAndData: '0x',
+  paymasterVerificationGasLimit: '0',
+  paymasterPostOpGasLimit: '0'
+}
+
 const createMockCoordinator = (overrides = {}) => ({
   submitProposal: jest.fn().mockResolvedValue(undefined),
   getProposal: jest.fn().mockResolvedValue({
     confirmations: [{ owner: ACCOUNT.address }],
-    userOperation: {
-      nonce: '0',
-      callGasLimit: '100000',
-      verificationGasLimit: '100000',
-      preVerificationGas: '50000',
-      maxFeePerGas: '1000000000',
-      maxPriorityFeePerGas: '1000000000',
-      paymasterVerificationGasLimit: '0',
-      paymasterPostOpGasLimit: '0'
-    },
+    userOperation: DUMMY_USER_OPERATION,
     preparedSignature: '0xpreparedsignature'
   }),
   confirmProposal: jest.fn().mockResolvedValue(undefined),
@@ -518,7 +522,9 @@ describe('WalletAccountMultisigSafe', () => {
   })
 
   describe('executeProposal', () => {
-    test('should return execute result with hash', async () => {
+    test('should return the execution hash and the fee in wei when the Safe pays with native coins', async () => {
+      const EXPECTED_FEE = 250000000000000n
+
       account._coordinator = createMockCoordinator()
       account._getProposalId = jest.fn().mockReturnValue(MOCK_SAFE_OP_HASH)
       account._getBundler = jest.fn().mockReturnValue(createMockBundler())
@@ -526,7 +532,55 @@ describe('WalletAccountMultisigSafe', () => {
 
       const result = await account.executeProposal(MOCK_SAFE_OP_HASH)
 
-      expect(result.hash).toBe(MOCK_USER_OP_HASH)
+      expect(result).toEqual({ hash: MOCK_USER_OP_HASH, fee: EXPECTED_FEE })
+    })
+
+    describe('when the Safe pays gas with a paymaster token', () => {
+      const PAYMASTER_URL = 'https://api.candide.dev/paymaster/v3/sepolia/dummy-key'
+      const PAYMASTER_TOKEN_ADDRESS = '0x1234567890AbcdEF1234567890aBcdef12345678'
+      const ENTRY_POINT_ADDRESS = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789'
+      const DUMMY_SUPPORTED_TOKENS = {
+        paymasterMetadata: { address: '0x' + 'cd'.repeat(20) },
+        tokens: [{ address: PAYMASTER_TOKEN_ADDRESS.toLowerCase(), exchangeRate: '0x77359400' }]
+      }
+
+      let erc20Account
+
+      beforeEach(() => {
+        erc20Account = new WalletAccountMultisigSafe(SEED_PHRASE, "0'/0/0", {
+          ...MOCK_CONFIG,
+          paymasterUrl: PAYMASTER_URL,
+          paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS,
+          safeOptions: { owners: [ACCOUNT.address], threshold: 1 }
+        })
+      })
+
+      afterEach(() => {
+        erc20Account.dispose()
+      })
+
+      test('should return the fee in token units', async () => {
+        const EXPECTED_FEE = 900000n
+
+        const sendRPCRequestMock = jest.fn().mockResolvedValue(DUMMY_SUPPORTED_TOKENS)
+        erc20Account._coordinator = createMockCoordinator({
+          getProposal: jest.fn().mockResolvedValue({
+            confirmations: [{ owner: ACCOUNT.address }],
+            userOperation: { ...DUMMY_USER_OPERATION, paymasterAndData: '0x' + 'ab'.repeat(40) },
+            preparedSignature: '0xpreparedsignature'
+          })
+        })
+        erc20Account._getProposalId = jest.fn().mockReturnValue(MOCK_SAFE_OP_HASH)
+        erc20Account._getBundler = jest.fn().mockReturnValue(createMockBundler())
+        erc20Account._getPaymaster = jest.fn().mockReturnValue({ sendRPCRequest: sendRPCRequestMock })
+        erc20Account._threshold = 1
+
+        const result = await erc20Account.executeProposal(MOCK_SAFE_OP_HASH)
+
+        expect(erc20Account._getPaymaster).toHaveBeenCalledWith(PAYMASTER_URL, { chainId: 11155111n })
+        expect(sendRPCRequestMock).toHaveBeenCalledWith('pm_supportedERC20Tokens', [ENTRY_POINT_ADDRESS])
+        expect(result).toEqual({ hash: MOCK_USER_OP_HASH, fee: EXPECTED_FEE })
+      })
     })
 
     test('should call sendUserOperation on the bundler', async () => {

@@ -161,13 +161,15 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      */
     rejectProposal(proposalId: string): Promise<MultisigProposal>;
     /**
-     * Executes a fully signed Safe operation via the bundler.
+     * Executes a fully signed Safe operation via the bundler. The returned fee is expressed in the asset the Safe
+     * pays gas with: zero when sponsored, paymaster token units when paying with a token, wei otherwise.
      *
      * @param {string} proposalId - The Safe operation hash to execute
-     * @returns {Promise<TransactionResult>} The on-chain transaction's result
-     * @throws {Error} If no proposal exists for the given id.
-     * @throws {Error} If the proposal does not have enough confirmations to meet the threshold.
-     * @throws {Error} If the proposal returned by the coordinator does not hash to the requested id.
+     * @returns {Promise<TransactionResult>} The execution result
+     * @throws {NoSuchElementError} If no proposal exists for the given id.
+     * @throws {ValueError} If the proposal does not have enough confirmations to meet the threshold.
+     * @throws {HashMismatchError} If the proposal returned by the coordinator does not hash to the requested id.
+     * @throws {InvalidTokenError} If the paymaster does not support the token in the 'paymasterTokenAddress' option.
      */
     executeProposal(proposalId: string): Promise<TransactionResult>;
     /**
