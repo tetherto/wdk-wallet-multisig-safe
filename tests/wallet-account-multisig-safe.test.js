@@ -22,6 +22,8 @@ import { TypedDataEncoder } from 'ethers'
 
 import { afterEach, beforeEach, describe, expect, test, jest } from '@jest/globals'
 
+import { WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
+
 import {
   WalletAccountMultisigSafe,
   WalletAccountReadOnlyMultisigSafe
@@ -141,10 +143,65 @@ describe('WalletAccountMultisigSafe', () => {
   })
 
   describe('constructor', () => {
-    test('should successfully initialize with seed phrase and path', () => {
-      expect(account).toBeDefined()
-      expect(account._signerAccount).toBeDefined()
-      expect(account._path).toBe("0'/0/0")
+    test('should successfully initialize with seed phrase and path', async () => {
+      expect(await account.getSignerAddress()).toBe(ACCOUNT.address)
+    })
+
+    test('should successfully initialize an account from an existing WalletAccountEvm', async () => {
+      const ownerAccount = new WalletAccountEvm(SEED_PHRASE, "0'/0/0", { provider: MOCK_CONFIG.provider })
+      const externalAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT.address],
+          threshold: 1
+        }
+      })
+
+      expect(externalAccount.index).toBe(ACCOUNT.index)
+      expect(externalAccount.path).toBe(ACCOUNT.path)
+      expect(await externalAccount.getSignerAddress()).toBe(ACCOUNT.address)
+
+      externalAccount.dispose()
+      ownerAccount.dispose()
+    })
+
+    test('should successfully initialize an account from a WalletAccountEvm backed by a private key', async () => {
+      const PRIVATE_KEY = '0x1ab42cc412b618bdea3a599e3c9bae199ebf030895b039e9db1e30dafb12b727'
+
+      const ownerAccount = WalletAccountEvm.fromPrivateKey(PRIVATE_KEY, { provider: MOCK_CONFIG.provider })
+      const externalAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT.address],
+          threshold: 1
+        }
+      })
+
+      expect(externalAccount.index).toBeUndefined()
+      expect(externalAccount.path).toBeUndefined()
+      expect(await externalAccount.getSignerAddress()).toBe(ACCOUNT.address)
+
+      externalAccount.dispose()
+      ownerAccount.dispose()
+    })
+
+    test('should accept an owner account that is not an instance of the WalletAccountEvm class resolved by this module', async () => {
+      class DummyOwnerAccount {
+        async getAddress () { return ACCOUNT_2.address }
+      }
+
+      const ownerAccount = new DummyOwnerAccount()
+      const externalAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT_2.address],
+          threshold: 1
+        }
+      })
+
+      expect(await externalAccount.getSignerAddress()).toBe(ACCOUNT_2.address)
+
+      externalAccount.dispose()
     })
 
     test('should successfully initialize with ERC-20 paymaster options', () => {
@@ -372,6 +429,42 @@ describe('WalletAccountMultisigSafe', () => {
 
       expect(testAccount._signerAccount).toBe(null)
       expect(testAccount._coordinator).toBe(null)
+    })
+
+    test('should not dispose a caller-supplied wallet-evm account', async () => {
+      const EXPECTED_SIGNATURE = '0x873e1cfa87ff824e5760b0018e2e882dda861d3ab6f16764f36dbe5016b7bc7a78e0531be068a8614fb74d8e65ad43d0a12acbdcf89858c52fb3df3d5ffa5e1d1c'
+
+      const ownerAccount = new WalletAccountEvm(SEED_PHRASE, "0'/0/0", { provider: MOCK_CONFIG.provider })
+      const testAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT.address],
+          threshold: 1
+        }
+      })
+
+      testAccount.dispose()
+
+      expect(await ownerAccount.sign('Hello world!')).toBe(EXPECTED_SIGNATURE)
+
+      ownerAccount.dispose()
+    })
+
+    test('should be safe to call dispose twice on an account built from a WalletAccountEvm', () => {
+      const ownerAccount = new WalletAccountEvm(SEED_PHRASE, "0'/0/0", { provider: MOCK_CONFIG.provider })
+      const testAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT.address],
+          threshold: 1
+        }
+      })
+
+      testAccount.dispose()
+
+      expect(() => testAccount.dispose()).not.toThrow()
+
+      ownerAccount.dispose()
     })
 
     test('should be safe to call dispose twice', () => {
@@ -641,6 +734,24 @@ describe('WalletAccountMultisigSafe', () => {
         value: 0n,
         data: '0xdeploydata'
       })
+    })
+
+    test('should throw if the owner account is not connected to a provider', async () => {
+      const ownerAccount = new WalletAccountEvm(SEED_PHRASE, "0'/0/0")
+      const externalAccount = new WalletAccountMultisigSafe(ownerAccount, {
+        ...MOCK_CONFIG,
+        safeOptions: {
+          owners: [ACCOUNT.address],
+          threshold: 1
+        }
+      })
+      externalAccount.isDeployed = jest.fn().mockResolvedValue(false)
+
+      await expect(externalAccount.deploy())
+        .rejects.toThrow('The wallet must be connected to a provider to send transactions.')
+
+      externalAccount.dispose()
+      ownerAccount.dispose()
     })
 
     test('should throw if Safe is already deployed', async () => {

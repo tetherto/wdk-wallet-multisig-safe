@@ -3,6 +3,8 @@ import { ethers } from 'ethers'
 import { alto } from 'prool/instances'
 import path from 'path'
 
+import { WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
+
 import { WalletAccountMultisigSafe } from '../../index.js'
 import InMemoryCoordinator from '../helpers/in-memory-coordinator.js'
 
@@ -95,7 +97,8 @@ describe('@wdk/wallet-multisig-safe — distributed multisig (integration)', () 
 
     signerA = new WalletAccountMultisigSafe(SEED_A, "0'/0/0", config)
     signerB = new WalletAccountMultisigSafe(SEED_B, "0'/0/0", config)
-    signerC = new WalletAccountMultisigSafe(SEED_C, "0'/0/0", config)
+    // Signer C is built from a wallet-evm account to exercise the caller-supplied owner path end to end
+    signerC = new WalletAccountMultisigSafe(new WalletAccountEvm(SEED_C, "0'/0/0", { provider: PROVIDER_URL }), config)
 
     safeAddress = await signerA.getAddress()
 

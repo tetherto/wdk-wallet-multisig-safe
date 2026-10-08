@@ -44,6 +44,7 @@
 /** @typedef {import('./src/wallet-account-read-only-multisig-safe.js').ExistingSafeOptions} ExistingSafeOptions */
 /** @typedef {import('./src/wallet-account-read-only-multisig-safe.js').PredictedSafeOptions} PredictedSafeOptions */
 /** @typedef {import('./src/wallet-account-read-only-multisig-safe.js').UserOperationReceipt} UserOperationReceipt */
+/** @typedef {import('./src/wallet-account-multisig-safe.js').MultisigSafeOwnerAccount} MultisigSafeOwnerAccount */
 
 // ============================================
 // Re-export types from read-only module

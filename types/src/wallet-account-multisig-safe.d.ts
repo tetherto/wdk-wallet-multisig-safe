@@ -22,33 +22,44 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
     /**
      * Creates a new multisig Safe wallet account.
      *
+     * @overload
      * @param {string | Uint8Array} seed - A [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) mnemonic seed phrase, or a raw BIP-32 master seed (16-64 bytes).
      * @param {string} path - The BIP-44 derivation path (e.g., "0'/0/0")
      * @param {MultisigSafeWalletConfig} config - The configuration object
+     * @throws {Error} If the seed is not a valid BIP-39 mnemonic.
+     * @throws {ConfigurationError} If the configuration is invalid or has missing required fields.
      */
     constructor(seed: string | Uint8Array, path: string, config: MultisigSafeWalletConfig);
+    /**
+     * Creates a new multisig Safe wallet account from a wallet-evm account. The account acts as the Safe owner, so
+     * the owner can be backed by any signer the wallet-evm account supports. To call `deploy`, the account must be
+     * connected to a provider on the same chain as the one in the configuration.
+     *
+     * @overload
+     * @param {MultisigSafeOwnerAccount} account - The owner account that signs this instance's proposals, approvals and
+     *   messages, and sends the deployment transaction.
+     * @param {MultisigSafeWalletConfig} config - The configuration object
+     * @throws {ConfigurationError} If the configuration is invalid or has missing required fields.
+     */
+    constructor(account: MultisigSafeOwnerAccount, config: MultisigSafeWalletConfig);
     /**
      * The signer account.
      *
      * @private
-     * @type {WalletAccountEvm}
+     * @type {MultisigSafeOwnerAccount}
      */
     private _signerAccount;
+    /** @private */
+    private _isExternalSignerAccount;
     /**
-     * The derivation path.
-     *
-     * @private
-     * @type {string}
-     */
-    private _path;
-    /**
-     * The derivation path's index of the signer associated with this account.
+     * The derivation path's index of this account, or `undefined` when the owner account does not expose one.
      *
      * @type {number}
      */
     get index(): number;
     /**
-     * The derivation path of the signer associated with this account (see [BIP-44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki)).
+     * The derivation path of this account (see [BIP-44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki)),
+     * or `undefined` when the owner account does not expose one.
      *
      * @type {string}
      */
@@ -57,6 +68,7 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * The key pair of this account.
      *
      * @type {KeyPair}
+     * @throws {Error} If the owner account does not expose its key material.
      */
     get keyPair(): KeyPair;
     /**
@@ -104,6 +116,7 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      *
      * @returns {Promise<TransactionResult>} Deployment result with transaction hash and fee
      * @throws {Error} If Safe is already deployed
+     * @throws {Error} If the owner account is not connected to a provider.
      */
     deploy(): Promise<TransactionResult>;
     /**
@@ -225,7 +238,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      */
     toReadOnlyAccount(): Promise<WalletAccountReadOnlyMultisigSafe>;
     /**
-     * Disposes the wallet account, clearing sensitive data from memory.
+     * Disposes the wallet account, clearing sensitive data from memory. A caller-supplied owner account is left
+     * untouched, since its lifecycle belongs to the caller.
      */
     dispose(): void;
     /** @private */
@@ -263,4 +277,10 @@ export type MultisigSafeWalletConfig = import("./wallet-account-read-only-multis
 export type MultisigSafeWalletPaymasterTokenConfig = import("./wallet-account-read-only-multisig-safe.js").MultisigSafeWalletPaymasterTokenConfig;
 export type MultisigSafeWalletSponsoredConfig = import("./wallet-account-read-only-multisig-safe.js").MultisigSafeWalletSponsoredConfig;
 export type MultisigSafeWalletNativeCoinsConfig = import("./wallet-account-read-only-multisig-safe.js").MultisigSafeWalletNativeCoinsConfig;
+/**
+ * An account that can act as one of the Safe's owners, including one from another installed copy of
+ * @tetherto/wdk-wallet-evm.
+ */
+export type MultisigSafeOwnerAccount = Pick<WalletAccountEvm, 'getAddress' | 'signTypedData' | 'sendTransaction'>;
+import { WalletAccountEvm } from '@tetherto/wdk-wallet-evm';
 import WalletAccountReadOnlyMultisigSafe from './wallet-account-read-only-multisig-safe.js';

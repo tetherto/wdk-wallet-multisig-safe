@@ -17,6 +17,7 @@ export type ApproveOptions = import("@tetherto/wdk-wallet-evm").ApproveOptions;
 export type ExistingSafeOptions = import("./src/wallet-account-read-only-multisig-safe.js").ExistingSafeOptions;
 export type PredictedSafeOptions = import("./src/wallet-account-read-only-multisig-safe.js").PredictedSafeOptions;
 export type UserOperationReceipt = import("./src/wallet-account-read-only-multisig-safe.js").UserOperationReceipt;
+export type MultisigSafeOwnerAccount = import("./src/wallet-account-multisig-safe.js").MultisigSafeOwnerAccount;
 export type MultisigSafeWalletCommonConfig = import("./src/wallet-account-read-only-multisig-safe.js").MultisigSafeWalletCommonConfig;
 export type MultisigSafeWalletPaymasterTokenConfig = import("./src/wallet-account-read-only-multisig-safe.js").MultisigSafeWalletPaymasterTokenConfig;
 export type MultisigSafeWalletSponsoredConfig = import("./src/wallet-account-read-only-multisig-safe.js").MultisigSafeWalletSponsoredConfig;
