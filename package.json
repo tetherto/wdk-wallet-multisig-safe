@@ -1,6 +1,6 @@
 {
   "name": "@tetherto/wdk-wallet-multisig-safe",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Safe multisig wallet module for WDK (Wallet Development Kit) by Tether, with ERC-4337 account abstraction for EVM networks.",
   "homepage": "https://docs.wdk.tether.io/",
   "keywords": [
