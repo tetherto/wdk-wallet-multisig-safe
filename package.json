@@ -36,8 +36,9 @@
     "@tetherto/wdk-wallet": "1.0.0-beta.19",
     "@tetherto/wdk-wallet-evm": "1.0.0-beta.16",
     "abstractionkit": "0.4.3",
-    "bare-fetch": "2.7.1",
-    "bare-node-runtime": "1.1.4",
+    "bare-fetch": "^3.0.0",
+    "bare-node-runtime": "^1.4.0",
+    "bare-tls": "^3.1.13",
     "ethers": "6.17.0"
   },
   "devDependencies": {
