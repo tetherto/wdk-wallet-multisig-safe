@@ -93,7 +93,7 @@ import { ConfigurationError } from './errors.js'
  * @typedef {Object} MultisigSafeWalletPaymasterTokenConfig
  * @property {false} [isSponsored] - Whether the paymaster is sponsoring the account.
  * @property {false} [useNativeCoins] - Whether to use native coins instead of a paymaster to pay for gas fees.
- * @property {string} [paymasterAddress] - Custom deployment of a supported paymaster, so the fee decoder accepts it
+ * @property {string} paymasterAddress - The address of the paymaster smart contract.
  * @property {string} paymasterTokenAddress - The address of the paymaster token.
  * @property {number | bigint} [transferMaxFee] - Maximum fee for transfers
  * @property {number | bigint} [amountToApprove] - Amount to approve for paymaster
@@ -566,6 +566,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
    * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
    * @throws {Error} If the token paymaster reports that the Safe does not hold the paymaster token.
+   * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
+   * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
    */
   async quoteSendTransaction (tx, config) {
     const mergedConfig = { ...this._config, ...config }
@@ -585,6 +587,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @param {TransferOptions} transferOptions - Transfer options
    * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
    * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
+   * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
+   * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
    */
   async quoteTransfer (transferOptions, config) {
     const tx = await WalletAccountReadOnlyEvm._getTransferTransaction(transferOptions)
@@ -928,6 +932,10 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
 
   /** @private */
   async _applyPaymasterToUserOp ({ mode, smartAccount, userOp, config, chainId, txOverrides = {} }) {
+    if (mode === PaymasterMode.TOKEN && !config.paymasterAddress) {
+      throw new ConfigurationError("The 'paymasterAddress' option is required when a 'paymasterUrl' is configured.")
+    }
+
     const paymaster = this._getPaymaster(config.paymasterUrl, { chainId: BigInt(chainId) })
 
     const context = mode === PaymasterMode.TOKEN
@@ -945,9 +953,35 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
       config.bundlerUrl,
       context,
       paymasterOverrides
-    )
+    ).catch((error) => {
+      // AbstractionKit throws this when the ERC-20 approval is not for the final paymaster.
+      if (error instanceof AbstractionKitError && error.context?.approveSpender !== undefined) {
+        const { approveSpender, finalPaymaster } = error.context
 
-    return { userOp: result.userOperation, tokenQuote: result.tokenQuote }
+        throw new ConfigurationError(
+          `paymasterAddress mismatch: the paymaster RPC quoted ${approveSpender} for the ERC-20 approval ` +
+          `but returned ${finalPaymaster || 'no paymaster'}.`,
+          { cause: error }
+        )
+      }
+
+      throw error
+    })
+
+    const sponsoredOp = result.userOperation
+
+    if (mode === PaymasterMode.TOKEN) {
+      const paymasterAddress = WalletAccountReadOnlyMultisigSafe._getPaymasterAddress(sponsoredOp)
+
+      if (paymasterAddress?.toLowerCase() !== config.paymasterAddress.toLowerCase()) {
+        throw new ConfigurationError(
+          `paymasterAddress mismatch: configured ${config.paymasterAddress} but the paymaster RPC returned ${paymasterAddress || 'no paymaster'}. ` +
+          'The generated ERC-20 approval would target an unexpected paymaster.'
+        )
+      }
+    }
+
+    return { userOp: sponsoredOp, tokenQuote: result.tokenQuote }
   }
 
   /** @private */
@@ -975,6 +1009,13 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
   /** @private */
   static _hasPaymaster (userOperation) {
     return userOperation.paymasterAndData !== undefined && userOperation.paymasterAndData !== '0x'
+  }
+
+  /** @private */
+  static _getPaymasterAddress (userOperation) {
+    return WalletAccountReadOnlyMultisigSafe._hasPaymaster(userOperation)
+      ? userOperation.paymasterAndData.slice(0, 42)
+      : undefined
   }
 
   /** @private */
@@ -1031,7 +1072,7 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
       }
     }
 
-    const { isSponsored, useNativeCoins, paymasterUrl, paymasterTokenAddress } = config
+    const { isSponsored, useNativeCoins, paymasterUrl, paymasterTokenAddress, paymasterAddress } = config
 
     if (isSponsored && useNativeCoins) {
       throw new ConfigurationError("Cannot use both 'isSponsored: true' and 'useNativeCoins: true'. Please use only one.")
@@ -1043,6 +1084,10 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
 
     if (!isSponsored && !useNativeCoins && paymasterUrl && !paymasterTokenAddress) {
       throw new ConfigurationError("The 'paymasterTokenAddress' option is required when a 'paymasterUrl' is configured.")
+    }
+
+    if (!isSponsored && !useNativeCoins && paymasterUrl && !paymasterAddress) {
+      throw new ConfigurationError("The 'paymasterAddress' option is required when a 'paymasterUrl' is configured.")
     }
   }
 }
