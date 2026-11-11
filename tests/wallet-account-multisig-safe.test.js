@@ -20,13 +20,16 @@ import * as bip39 from 'bip39'
 
 import { TypedDataEncoder } from 'ethers'
 
+import { AbstractionKitError, Erc7677Paymaster } from 'abstractionkit'
+
 import { afterEach, beforeEach, describe, expect, test, jest } from '@jest/globals'
 
 import { WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
 
 import {
   WalletAccountMultisigSafe,
-  WalletAccountReadOnlyMultisigSafe
+  WalletAccountReadOnlyMultisigSafe,
+  ConfigurationError
 } from '../index.js'
 
 const SEED_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
@@ -852,6 +855,117 @@ describe('WalletAccountMultisigSafe', () => {
       expect(fee).toBe(0n)
 
       sponsoredAccount.dispose()
+    })
+
+    describe('with a paymaster', () => {
+      const PAYMASTER_ADDRESS = '0x000000000041F3aFe8892B48D88b6862efe0ec8d'
+      const WRONG_PAYMASTER = '0x1111111111111111111111111111111111111111'
+      const PAYMASTER_DATA = 'ab'.repeat(52)
+      const PAYMASTER_TOKEN_ADDRESS = '0x1234567890abcdef1234567890abcdef12345678'
+      const TRANSACTION = { to: ACCOUNT_2.address, value: '1000', data: '0x' }
+      const DUMMY_USER_OPERATION = {
+        sender: MOCK_SAFE_ADDRESS,
+        nonce: 0n,
+        initCode: '0x',
+        callData: '0x',
+        callGasLimit: 100_000n,
+        verificationGasLimit: 200_000n,
+        preVerificationGas: 50_000n,
+        maxFeePerGas: 1_000_000_000n,
+        maxPriorityFeePerGas: 1_000_000_000n,
+        paymasterAndData: '0x',
+        signature: '0x'
+      }
+
+      let paymasterAccount
+      let coordinator
+
+      const createPaymasterAccount = (config) => {
+        paymasterAccount = new WalletAccountMultisigSafe(SEED_PHRASE, "0'/0/0", {
+          ...MOCK_CONFIG,
+          paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+          ...config,
+          safeOptions: { owners: [ACCOUNT.address], threshold: 1 }
+        })
+        coordinator = createMockCoordinator()
+        paymasterAccount._coordinator = coordinator
+        paymasterAccount._threshold = 1
+        paymasterAccount.validateSignerIsOwner = jest.fn().mockResolvedValue(undefined)
+        paymasterAccount._getSmartAccount = jest.fn().mockResolvedValue({
+          createUserOperation: jest.fn().mockResolvedValue({ ...DUMMY_USER_OPERATION }),
+          signUserOperationWithSigners: jest.fn().mockResolvedValue('0xsignature')
+        })
+        paymasterAccount._getExpectedSigners = jest.fn().mockResolvedValue([ACCOUNT.address])
+        return paymasterAccount
+      }
+
+      const mockPaymasterResult = (userOperation) =>
+        jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockResolvedValue({ userOperation })
+
+      afterEach(() => {
+        jest.restoreAllMocks()
+        paymasterAccount.dispose()
+      })
+
+      test('should not submit a proposal whose paymaster differs from the configured paymasterAddress', async () => {
+        mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: WRONG_PAYMASTER + PAYMASTER_DATA })
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS })
+
+        const promise = erc20Account.propose(TRANSACTION)
+
+        await expect(promise).rejects.toThrow(ConfigurationError)
+        await expect(promise).rejects.toThrow(`paymasterAddress mismatch: configured ${PAYMASTER_ADDRESS} but the paymaster RPC returned ${WRONG_PAYMASTER}. ` +
+          'The generated ERC-20 approval would target an unexpected paymaster.')
+        expect(coordinator.submitProposal).not.toHaveBeenCalled()
+      })
+
+      test('should not submit a proposal whose ERC-20 approval was quoted for a paymaster other than the returned one', async () => {
+        jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockRejectedValue(
+          new AbstractionKitError('PAYMASTER_ERROR', 'token paymaster mismatch', {
+            context: { approveSpender: WRONG_PAYMASTER, finalPaymaster: PAYMASTER_ADDRESS }
+          })
+        )
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS })
+
+        const promise = erc20Account.propose(TRANSACTION)
+
+        await expect(promise).rejects.toThrow(ConfigurationError)
+        await expect(promise).rejects.toThrow(`paymasterAddress mismatch: the paymaster RPC quoted ${WRONG_PAYMASTER} for the ERC-20 approval but returned ${PAYMASTER_ADDRESS}.`)
+        expect(coordinator.submitProposal).not.toHaveBeenCalled()
+      })
+
+      test('should not submit a proposal whose paymaster is not a known token paymaster when no paymasterAddress is configured', async () => {
+        mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: WRONG_PAYMASTER + PAYMASTER_DATA })
+        const erc20Account = createPaymasterAccount({ paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS })
+
+        const promise = erc20Account.propose(TRANSACTION)
+
+        await expect(promise).rejects.toThrow(ConfigurationError)
+        await expect(promise).rejects.toThrow(`The paymaster RPC returned ${WRONG_PAYMASTER}, which is not a known token paymaster. Set the 'paymasterAddress' option for a custom deployment.`)
+        expect(coordinator.submitProposal).not.toHaveBeenCalled()
+      })
+
+      test('should submit the operation returned by the paymaster RPC when it uses the configured paymaster', async () => {
+        mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: PAYMASTER_ADDRESS + PAYMASTER_DATA })
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS })
+
+        const result = await erc20Account.propose(TRANSACTION)
+
+        expect(result.status).toBe('pending')
+        expect(coordinator.submitProposal).toHaveBeenCalledTimes(1)
+        expect(coordinator.submitProposal.mock.calls[0][1].userOperation.paymasterAndData).toBe(PAYMASTER_ADDRESS + PAYMASTER_DATA)
+        expect(coordinator.submitProposal.mock.calls[0][1].userOperation.signature).toBe('0xsignature')
+      })
+
+      test('should not check the paymaster address of a sponsored operation', async () => {
+        mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: WRONG_PAYMASTER + PAYMASTER_DATA })
+        const sponsoredAccount = createPaymasterAccount({ isSponsored: true })
+
+        const result = await sponsoredAccount.propose(TRANSACTION)
+
+        expect(result.status).toBe('pending')
+        expect(coordinator.submitProposal.mock.calls[0][1].userOperation.paymasterAndData).toBe(WRONG_PAYMASTER + PAYMASTER_DATA)
+      })
     })
   })
 

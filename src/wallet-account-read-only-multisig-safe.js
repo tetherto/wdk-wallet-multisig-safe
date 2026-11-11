@@ -93,7 +93,7 @@ import { ConfigurationError } from './errors.js'
  * @typedef {Object} MultisigSafeWalletPaymasterTokenConfig
  * @property {false} [isSponsored] - Whether the paymaster is sponsoring the account.
  * @property {false} [useNativeCoins] - Whether to use native coins instead of a paymaster to pay for gas fees.
- * @property {string} [paymasterAddress] - Custom deployment of a supported paymaster, so the fee decoder accepts it
+ * @property {string} [paymasterAddress] - Custom deployment of a supported paymaster, so the fee decoder accepts it. When set, the paymaster RPC must return this paymaster.
  * @property {string} paymasterTokenAddress - The address of the paymaster token.
  * @property {number | bigint} [transferMaxFee] - Maximum fee for transfers
  * @property {number | bigint} [amountToApprove] - Amount to approve for paymaster
@@ -566,6 +566,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
    * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
    * @throws {Error} If the token paymaster reports that the Safe does not hold the paymaster token.
+   * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+   * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
    */
   async quoteSendTransaction (tx, config) {
     const mergedConfig = { ...this._config, ...config }
@@ -585,6 +587,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @param {TransferOptions} transferOptions - Transfer options
    * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
    * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
+   * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+   * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
    */
   async quoteTransfer (transferOptions, config) {
     const tx = await WalletAccountReadOnlyEvm._getTransferTransaction(transferOptions)
@@ -945,9 +949,62 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
       config.bundlerUrl,
       context,
       paymasterOverrides
+    ).catch((error) => {
+      // AbstractionKit throws this when the ERC-20 approval is not for the final paymaster.
+      if (error instanceof AbstractionKitError && error.context?.approveSpender !== undefined) {
+        const { approveSpender, finalPaymaster } = error.context
+
+        throw new ConfigurationError(
+          `paymasterAddress mismatch: the paymaster RPC quoted ${approveSpender} for the ERC-20 approval ` +
+          `but returned ${finalPaymaster || 'no paymaster'}.`,
+          { cause: error }
+        )
+      }
+
+      throw error
+    })
+
+    const sponsoredOp = result.userOperation
+
+    if (mode === PaymasterMode.TOKEN) {
+      await this._verifyTokenPaymaster(sponsoredOp, config)
+    }
+
+    return { userOp: sponsoredOp, tokenQuote: result.tokenQuote }
+  }
+
+  /** @private */
+  async _verifyTokenPaymaster (userOperation, config) {
+    const paymasterAddress = WalletAccountReadOnlyMultisigSafe._getPaymasterAddress(userOperation)
+
+    if (config.paymasterAddress !== undefined) {
+      if (paymasterAddress?.toLowerCase() !== config.paymasterAddress.toLowerCase()) {
+        throw new ConfigurationError(
+          `paymasterAddress mismatch: configured ${config.paymasterAddress} but the paymaster RPC returned ${paymasterAddress || 'no paymaster'}. ` +
+          'The generated ERC-20 approval would target an unexpected paymaster.'
+        )
+      }
+
+      return
+    }
+
+    const notKnown = (options) => new ConfigurationError(
+      `The paymaster RPC returned ${paymasterAddress || 'no paymaster'}, which is not a known token paymaster. ` +
+      "Set the 'paymasterAddress' option for a custom deployment.",
+      options
     )
 
-    return { userOp: result.userOperation, tokenQuote: result.tokenQuote }
+    const quote = await Erc7677Paymaster.decodeTokenQuote(userOperation, this._provider).catch((error) => {
+      if (error instanceof AbstractionKitError && error.code === 'PAYMASTER_ERROR' && error.context?.paymaster !== undefined) {
+        throw notKnown({ cause: error })
+      }
+
+      throw error
+    })
+
+    if (quote === null) {
+      throw notKnown()
+    }
   }
 
   /** @private */
@@ -975,6 +1032,13 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
   /** @private */
   static _hasPaymaster (userOperation) {
     return userOperation.paymasterAndData !== undefined && userOperation.paymasterAndData !== '0x'
+  }
+
+  /** @private */
+  static _getPaymasterAddress (userOperation) {
+    return WalletAccountReadOnlyMultisigSafe._hasPaymaster(userOperation)
+      ? userOperation.paymasterAndData.slice(0, 42)
+      : undefined
   }
 
   /** @private */

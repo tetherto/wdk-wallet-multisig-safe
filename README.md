@@ -353,6 +353,7 @@ const result = await bob.propose(tx, {
 | `isSponsored` | Override to sponsored mode (`true`) or ERC-20 mode (`false`) |
 | `sponsorshipPolicyId` | Override sponsorship policy ID (for sponsored mode) |
 | `paymasterTokenAddress` | Override token address for gas payment (for ERC-20 mode) |
+| `paymasterAddress` | Paymaster contract the ERC-20 approval must go to (for ERC-20 mode). When unset, the paymaster RPC must return a known Pimlico or Candide token paymaster; set it for a custom deployment |
 | `amountToApprove` | Token amount to approve for paymaster (for ERC-20 mode) |
 
 ### Owner Management
