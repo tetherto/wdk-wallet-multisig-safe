@@ -602,6 +602,27 @@ describe('WalletAccountMultisigSafe', () => {
         .rejects.toThrow(`SafeOperation not found: ${MOCK_SAFE_OP_HASH}`)
     })
 
+    test('should throw and not propose a rejection when the returned proposal does not hash to the requested id', async () => {
+      const mockCoordinator = createMockCoordinator({
+        getProposal: jest.fn().mockResolvedValue({
+          confirmations: [{ owner: ACCOUNT.address }],
+          userOperation: { nonce: '123456789' },
+          preparedSignature: '0xsignature'
+        })
+      })
+      account._coordinator = mockCoordinator
+      account._createSafeOperation = jest.fn()
+      account._getProposalId = jest.fn().mockReturnValue(MOCK_USER_OP_HASH)
+      account._safeAddress = MOCK_SAFE_ADDRESS
+      account._threshold = 1
+      account.validateSignerIsOwner = jest.fn().mockResolvedValue(undefined)
+
+      await expect(account.rejectProposal(MOCK_SAFE_OP_HASH))
+        .rejects.toThrow(`Proposal returned by the coordinator does not hash to the requested id: ${MOCK_SAFE_OP_HASH}`)
+      expect(account._createSafeOperation).not.toHaveBeenCalled()
+      expect(mockCoordinator.submitProposal).not.toHaveBeenCalled()
+    })
+
     test('should throw if original proposal has no nonce', async () => {
       account._coordinator = createMockCoordinator({
         getProposal: jest.fn().mockResolvedValue({
