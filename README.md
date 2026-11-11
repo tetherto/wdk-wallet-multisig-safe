@@ -203,7 +203,6 @@ const alice = new WalletAccountMultisigSafe(aliceSeed, "0'/0/0", {
   bundlerUrl: 'https://your-aa-provider.example/rpc?apikey=YOUR_KEY',
   chainId: 11155111n,
   paymasterUrl: 'https://your-aa-provider.example/rpc?apikey=YOUR_KEY',
-  paymasterAddress: '0x...',
   paymasterTokenAddress: '0x...', // USDT address
   safeApiKey: 'YOUR_SAFE_API_KEY', // OR txServiceUrl: 'https://your-proxy.com/safe'
   safeOptions: {
@@ -297,7 +296,6 @@ const alice = new WalletAccountMultisigSafe(aliceSeed, "0'/0/0", {
   bundlerUrl: 'https://your-aa-provider.example/rpc?apikey=YOUR_KEY',
   chainId: 11155111n,
   paymasterUrl: 'https://your-aa-provider.example/rpc?apikey=YOUR_KEY',
-  paymasterAddress: '0x...',
   paymasterTokenAddress: '0xUSDT...', // Default: pay gas with USDT
   safeApiKey: 'YOUR_SAFE_API_KEY', // OR txServiceUrl: 'https://your-proxy.com/safe'
   safeOptions: {
@@ -333,13 +331,11 @@ const bob = new WalletAccountMultisigSafe(bobSeed, "0'/0/0", {
 // Override to ERC-20 paymaster for this specific transaction
 const quote = await bob.quoteSendTransaction(tx, {
   isSponsored: false,
-  paymasterAddress: '0x...',
   paymasterTokenAddress: '0xUSDT...'
 })
 
 const result = await bob.propose(tx, {
   isSponsored: false,
-  paymasterAddress: '0x...',
   paymasterTokenAddress: '0xUSDT...'
 })
 ```
@@ -351,7 +347,7 @@ const result = await bob.propose(tx, {
 | `isSponsored` | Override to sponsored mode (`true`) or ERC-20 mode (`false`) |
 | `sponsorshipPolicyId` | Override sponsorship policy ID (for sponsored mode) |
 | `paymasterTokenAddress` | Override token address for gas payment (for ERC-20 mode) |
-| `paymasterAddress` | The paymaster contract the ERC-20 approval is granted to; required in ERC-20 mode, and the operation is rejected if the paymaster RPC returns a different one |
+| `paymasterAddress` | Paymaster contract the ERC-20 approval must go to (for ERC-20 mode). When unset, the paymaster RPC must return a known Pimlico or Candide token paymaster; set it for a custom deployment |
 
 ### Owner Management
 
