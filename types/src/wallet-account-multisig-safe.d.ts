@@ -171,8 +171,9 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      *
      * @param {string} proposalId - The Safe operation hash to reject
      * @returns {Promise<MultisigProposal>} The rejection proposal result
-     * @throws {Error} If no proposal exists for the given id.
-     * @throws {Error} If the original proposal has no nonce to reuse.
+     * @throws {NoSuchElementError} If no proposal exists for the given id.
+     * @throws {ValueError} If the original proposal has no nonce to reuse.
+     * @throws {HashMismatchError} If the proposal returned by the coordinator does not hash to the requested id.
      */
     rejectProposal(proposalId: string): Promise<MultisigProposal>;
     /**

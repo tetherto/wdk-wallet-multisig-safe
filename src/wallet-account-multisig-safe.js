@@ -374,6 +374,7 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
    * @returns {Promise<MultisigProposal>} The rejection proposal result
    * @throws {NoSuchElementError} If no proposal exists for the given id.
    * @throws {ValueError} If the original proposal has no nonce to reuse.
+   * @throws {HashMismatchError} If the proposal returned by the coordinator does not hash to the requested id.
    */
   async rejectProposal (proposalId) {
     const safeOperationResponse = await this._coordinator.getProposal(proposalId)
@@ -382,10 +383,12 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
       throw new NoSuchElementError(`SafeOperation not found: ${proposalId}`)
     }
 
-    const nonce = safeOperationResponse.userOperation?.nonce
-    if (nonce === undefined) {
+    if (safeOperationResponse.userOperation?.nonce === undefined) {
       throw new ValueError('Cannot reject: original proposal has no nonce')
     }
+
+    const userOp = this._rebuildUserOperation(safeOperationResponse.userOperation)
+    this._verifyProposalId(proposalId, userOp)
 
     const safeAddress = await this.getAddress()
     const rejectionTx = {
@@ -394,7 +397,7 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
       data: '0x'
     }
 
-    return await this._propose(rejectionTx, { customNonce: BigInt(nonce) })
+    return await this._propose(rejectionTx, { customNonce: userOp.nonce })
   }
 
   /**
