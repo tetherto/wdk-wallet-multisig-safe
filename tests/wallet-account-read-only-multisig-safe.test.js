@@ -14,15 +14,15 @@
 
 'use strict'
 
-import { describe, expect, test, jest } from '@jest/globals'
+import { afterEach, describe, expect, test, jest } from '@jest/globals'
 
 import { AbiCoder } from 'ethers'
 
 import { readFileSync } from 'node:fs'
 
-import { AbstractionKitError } from 'abstractionkit'
+import { AbstractionKitError, Erc7677Paymaster } from 'abstractionkit'
 
-import { WalletAccountReadOnlyMultisigSafe, SafeTxServiceCoordinator } from '../index.js'
+import { WalletAccountReadOnlyMultisigSafe, SafeTxServiceCoordinator, ConfigurationError } from '../index.js'
 
 const ACCOUNT = {
   address: '0x9858EfFD232B4033E47d90003D41EC34EcaEda94'
@@ -253,6 +253,7 @@ describe('WalletAccountReadOnlyMultisigSafe', () => {
       const account = new WalletAccountReadOnlyMultisigSafe({
         ...MOCK_CONFIG,
         paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+        paymasterAddress: '0x000000000041F3aFe8892B48D88b6862efe0ec8d',
         paymasterTokenAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
         safeOptions: {
           safeAddress: MOCK_SAFE_ADDRESS
@@ -261,6 +262,17 @@ describe('WalletAccountReadOnlyMultisigSafe', () => {
 
       expect(account._config.paymasterTokenAddress).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238')
       expect(account._config.isSponsored).toBeUndefined()
+    })
+
+    test('should throw if a paymaster token is configured without a paymasterAddress', () => {
+      expect(() => new WalletAccountReadOnlyMultisigSafe({
+        ...MOCK_CONFIG,
+        paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+        paymasterTokenAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+        safeOptions: {
+          safeAddress: MOCK_SAFE_ADDRESS
+        }
+      })).toThrow(new ConfigurationError("The 'paymasterAddress' option is required when a 'paymasterUrl' is configured."))
     })
 
     test('should successfully initialize with sponsored paymaster and sponsorshipPolicyId', () => {
@@ -473,6 +485,127 @@ describe('WalletAccountReadOnlyMultisigSafe', () => {
     })
   })
 
+  describe('quoteSendTransaction', () => {
+    const PAYMASTER_ADDRESS = '0x000000000041F3aFe8892B48D88b6862efe0ec8d'
+    const WRONG_PAYMASTER = '0x1111111111111111111111111111111111111111'
+    const PAYMASTER_DATA = 'ab'.repeat(52)
+    const TRANSACTION = { to: ACCOUNT_2.address, value: 1000n, data: '0x' }
+
+    const DUMMY_USER_OPERATION = {
+      sender: MOCK_SAFE_ADDRESS,
+      nonce: 0n,
+      initCode: '0x',
+      callData: '0x',
+      callGasLimit: 100_000n,
+      verificationGasLimit: 200_000n,
+      preVerificationGas: 50_000n,
+      maxFeePerGas: 1_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+      paymasterAndData: '0x',
+      signature: '0x'
+    }
+
+    const createMockPaymasterSmartAccount = () => ({
+      createUserOperation: jest.fn().mockResolvedValue({ ...DUMMY_USER_OPERATION })
+    })
+
+    const createTokenAccount = () => {
+      const account = new WalletAccountReadOnlyMultisigSafe({
+        ...MOCK_CONFIG,
+        paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+        paymasterAddress: PAYMASTER_ADDRESS,
+        paymasterTokenAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+        safeOptions: {
+          safeAddress: MOCK_SAFE_ADDRESS
+        }
+      })
+      account._getSmartAccount = jest.fn().mockResolvedValue(createMockPaymasterSmartAccount())
+      account._getExpectedSigners = jest.fn().mockResolvedValue([ACCOUNT.address])
+      return account
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('should throw when the paymaster RPC returns a different paymaster address than configured', async () => {
+      jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockResolvedValue({
+        userOperation: { ...DUMMY_USER_OPERATION, paymasterAndData: WRONG_PAYMASTER + PAYMASTER_DATA },
+        tokenQuote: { tokenCost: 500_000n }
+      })
+
+      await expect(createTokenAccount().quoteSendTransaction(TRANSACTION))
+        .rejects.toThrow(new ConfigurationError(`paymasterAddress mismatch: configured ${PAYMASTER_ADDRESS} but the paymaster RPC returned ${WRONG_PAYMASTER}. ` +
+          'The generated ERC-20 approval would target an unexpected paymaster.'))
+    })
+
+    test('should throw when the paymaster RPC returns no paymaster address', async () => {
+      jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockResolvedValue({
+        userOperation: { ...DUMMY_USER_OPERATION, paymasterAndData: '0x' },
+        tokenQuote: { tokenCost: 500_000n }
+      })
+
+      await expect(createTokenAccount().quoteSendTransaction(TRANSACTION))
+        .rejects.toThrow(new ConfigurationError(`paymasterAddress mismatch: configured ${PAYMASTER_ADDRESS} but the paymaster RPC returned no paymaster. ` +
+          'The generated ERC-20 approval would target an unexpected paymaster.'))
+    })
+
+    test('should throw when abstractionkit reports that the ERC-20 approval is not for the final paymaster', async () => {
+      const error = new AbstractionKitError('PAYMASTER_ERROR', 'token paymaster mismatch', {
+        context: { approveSpender: WRONG_PAYMASTER, finalPaymaster: PAYMASTER_ADDRESS }
+      })
+      jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockRejectedValue(error)
+
+      const promise = createTokenAccount().quoteSendTransaction(TRANSACTION)
+
+      await expect(promise).rejects.toThrow(ConfigurationError)
+      await expect(promise).rejects.toMatchObject({
+        message: `paymasterAddress mismatch: the paymaster RPC quoted ${WRONG_PAYMASTER} for the ERC-20 approval but returned ${PAYMASTER_ADDRESS}.`,
+        cause: error
+      })
+    })
+
+    test('should throw if a per-call paymaster token override has no paymasterAddress', async () => {
+      const createPaymasterUserOperationMock = jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation')
+      const account = new WalletAccountReadOnlyMultisigSafe({
+        ...MOCK_CONFIG,
+        useNativeCoins: true,
+        safeOptions: {
+          safeAddress: MOCK_SAFE_ADDRESS
+        }
+      })
+      account._getSmartAccount = jest.fn().mockResolvedValue(createMockPaymasterSmartAccount())
+      account._getExpectedSigners = jest.fn().mockResolvedValue([ACCOUNT.address])
+
+      await expect(account.quoteSendTransaction(TRANSACTION, {
+        useNativeCoins: false,
+        paymasterUrl: 'https://paymaster.dummy-network.example/rpc?apikey=dummy-key',
+        paymasterTokenAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+      })).rejects.toThrow(new ConfigurationError("The 'paymasterAddress' option is required when a 'paymasterUrl' is configured."))
+      expect(createPaymasterUserOperationMock).not.toHaveBeenCalled()
+    })
+
+    test('should pass through when the paymaster RPC returns the configured paymaster address (case-insensitive)', async () => {
+      const createPaymasterUserOperationMock = jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockResolvedValue({
+        userOperation: { ...DUMMY_USER_OPERATION, paymasterAndData: PAYMASTER_ADDRESS.toLowerCase() + PAYMASTER_DATA },
+        tokenQuote: { tokenCost: 500_000n }
+      })
+      const account = createTokenAccount()
+      account._getExecutionFee = jest.fn().mockResolvedValue(500_000n)
+
+      const { fee } = await account.quoteSendTransaction(TRANSACTION)
+
+      expect(fee).toBe(500_000n)
+      expect(createPaymasterUserOperationMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { ...DUMMY_USER_OPERATION },
+        MOCK_CONFIG.bundlerUrl,
+        { token: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' },
+        { entrypoint: '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789' }
+      )
+    })
+  })
+
   describe('quoteExecuteProposal', () => {
     const DUMMY_USER_OPERATION = {
       nonce: '0',
@@ -565,7 +698,7 @@ describe('WalletAccountReadOnlyMultisigSafe', () => {
       const { userOperation } = loadFixture('pimlico-token')
       const account = createAccount(
         { ...userOperation, paymasterAndData: CUSTOM_PAYMASTER_ADDRESS + userOperation.paymasterAndData.slice(42) },
-        { paymasterUrl: PIMLICO_PAYMASTER_URL, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS }
+        { paymasterUrl: PIMLICO_PAYMASTER_URL, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS, paymasterAddress: userOperation.paymasterAndData.slice(0, 42) }
       )
 
       const promise = account.quoteExecuteProposal(MOCK_SAFE_OP_HASH)

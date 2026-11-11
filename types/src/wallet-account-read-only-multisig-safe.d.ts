@@ -229,6 +229,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
      * @throws {Error} If the token paymaster reports that the Safe does not hold the paymaster token.
+     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
+     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
      */
     quoteSendTransaction(tx: EvmTransaction, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<{
         fee: bigint;
@@ -239,6 +241,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @param {TransferOptions} transferOptions - Transfer options
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
+     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
+     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
      */
     quoteTransfer(transferOptions: TransferOptions, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<{
         fee: bigint;
@@ -485,9 +489,9 @@ export type MultisigSafeWalletPaymasterTokenConfig = {
      */
     useNativeCoins?: false;
     /**
-     * - Custom deployment of a supported paymaster, so the fee decoder accepts it
+     * - The address of the paymaster smart contract.
      */
-    paymasterAddress?: string;
+    paymasterAddress: string;
     /**
      * - The address of the paymaster token.
      */
