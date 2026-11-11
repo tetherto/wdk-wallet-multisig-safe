@@ -126,8 +126,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {EvmTransaction} tx - The transaction to propose
      * @param {MultisigTransactionOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [options] - Send and paymaster config options
      * @returns {Promise<MultisigProposal & MultisigInteractionResult>} The created proposal; its `status` is `'executed'` when `autoExecute` ran to completion, otherwise `'pending'`. When it auto-executed, `transaction` holds the on-chain result.
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     propose(tx: EvmTransaction, options?: MultisigTransactionOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal & MultisigInteractionResult>;
     /**
@@ -138,8 +138,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {MultisigTransactionOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [options] - Send and paymaster config options
      * @returns {Promise<MultisigProposal & MultisigInteractionResult>} The created proposal; its `status` is `'executed'` when `autoExecute` ran to completion, otherwise `'pending'`. When it auto-executed, `transaction` holds the on-chain result.
      * @throws {Error} If the estimated fee exceeds the configured `transferMaxFee`.
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     proposeTransfer(transferOptions: TransferOptions, options?: MultisigTransactionOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal & MultisigInteractionResult>;
     /** @private */
@@ -177,7 +177,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @returns {Promise<MultisigProposal>} The rejection proposal result
      * @throws {Error} If no proposal exists for the given id.
      * @throws {Error} If the original proposal has no nonce to reuse.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     rejectProposal(proposalId: string): Promise<MultisigProposal>;
     /**
@@ -199,8 +200,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {string} ownerAddress - Address of new owner
      * @param {MultisigOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [options] - Options with optional threshold and paymaster config
      * @returns {Promise<MultisigProposal>} The proposal result
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     addOwner(ownerAddress: string, options?: MultisigOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal>;
     /**
@@ -209,8 +210,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {string} ownerAddress - Address of owner to remove
      * @param {MultisigOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [options] - Options with optional threshold and paymaster config
      * @returns {Promise<MultisigProposal>} The proposal result
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     removeOwner(ownerAddress: string, options?: MultisigOptions & Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal>;
     /**
@@ -220,8 +221,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {string} newOwnerAddress - Address of new owner
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<MultisigProposal>} The proposal result
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     swapOwner(oldOwnerAddress: string, newOwnerAddress: string, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal>;
     /**
@@ -230,8 +231,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {number} newThreshold - New threshold value
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<MultisigProposal>} The proposal result
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     changeThreshold(newThreshold: number, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal>;
     /**
@@ -242,8 +243,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<MultisigProposal>} The proposal result
      * @throws {Error} If there are no owner or threshold changes to make.
-     * @throws {ConfigurationError} If the override `config` is invalid or has missing required fields.
-     * @throws {ConfigurationError} If, in token mode, the configured `paymasterAddress` does not match the paymaster address returned by the paymaster RPC. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     updateOwners(newOwners: string[], newThreshold: number, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<MultisigProposal>;
     /**
