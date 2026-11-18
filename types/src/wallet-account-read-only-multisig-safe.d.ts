@@ -496,10 +496,6 @@ export type MultisigSafeWalletPaymasterTokenConfig = {
      * - Maximum fee for transfers
      */
     transferMaxFee?: number | bigint;
-    /**
-     * - Amount to approve for paymaster
-     */
-    amountToApprove?: number | bigint;
 };
 export type MultisigSafeWalletSponsoredConfig = {
     /**
@@ -530,5 +526,5 @@ export type MultisigSafeWalletNativeCoinsConfig = {
     transferMaxFee?: number | bigint;
 };
 export type MultisigSafeWalletConfig = MultisigSafeWalletCommonConfig & (MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig);
-export type MultisigSafeWalletReadOnlyConfig = Omit<MultisigSafeWalletConfig, "transferMaxFee" | "amountToApprove">;
+export type MultisigSafeWalletReadOnlyConfig = Omit<MultisigSafeWalletConfig, "transferMaxFee">;
 import { WalletAccountReadOnly } from '@tetherto/wdk-wallet';

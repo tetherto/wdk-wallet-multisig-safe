@@ -96,7 +96,6 @@ import { ConfigurationError } from './errors.js'
  * @property {string} [paymasterAddress] - Custom deployment of a supported paymaster, so the fee decoder accepts it
  * @property {string} paymasterTokenAddress - The address of the paymaster token.
  * @property {number | bigint} [transferMaxFee] - Maximum fee for transfers
- * @property {number | bigint} [amountToApprove] - Amount to approve for paymaster
  */
 
 /**
@@ -117,7 +116,7 @@ import { ConfigurationError } from './errors.js'
  * @typedef {MultisigSafeWalletCommonConfig & (MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig)} MultisigSafeWalletConfig
  */
 
-/** @typedef {Omit<MultisigSafeWalletConfig, 'transferMaxFee' | 'amountToApprove'>} MultisigSafeWalletReadOnlyConfig */
+/** @typedef {Omit<MultisigSafeWalletConfig, 'transferMaxFee'>} MultisigSafeWalletReadOnlyConfig */
 
 export const DEFAULT_SAFE_MODULES_VERSION = '0.2.0'
 export const DEFAULT_SAFE_VERSION = '1.4.1'
