@@ -229,6 +229,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
      * @throws {Error} If the token paymaster reports that the Safe does not hold the paymaster token.
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     quoteSendTransaction(tx: EvmTransaction, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<{
         fee: bigint;
@@ -239,6 +241,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @param {TransferOptions} transferOptions - Transfer options
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
      * @returns {Promise<{fee: bigint}>} Estimated fee in paymaster token units or wei
+     * @throws {ConfigurationError} If, in token mode, the paymaster RPC returns a paymaster other than the configured `paymasterAddress` (or, when none is configured, one that is not a known token paymaster), or one that differs from the spender of the ERC-20 approval it quoted. This guards against the auto-generated ERC-20 approval targeting an unexpected paymaster contract.
+     * @throws {AbstractionKitError} If, in token mode without a configured `paymasterAddress`, the data of the returned paymaster cannot be decoded.
      */
     quoteTransfer(transferOptions: TransferOptions, config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<{
         fee: bigint;
@@ -375,6 +379,8 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
     /** @private */
     private _applyPaymasterToUserOp;
     /** @private */
+    private _verifyTokenPaymaster;
+    /** @private */
     private _validateConfig;
 }
 export type Eip1193Provider = import("ethers").Eip1193Provider;
@@ -485,7 +491,7 @@ export type MultisigSafeWalletPaymasterTokenConfig = {
      */
     useNativeCoins?: false;
     /**
-     * - Custom deployment of a supported paymaster, so the fee decoder accepts it
+     * - Custom deployment of a supported paymaster, so the fee decoder accepts it. When set, the paymaster RPC must return this paymaster.
      */
     paymasterAddress?: string;
     /**
