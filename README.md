@@ -151,9 +151,7 @@ const quote = await alice.quoteSendTransaction(tx)
 console.log('Estimated fee:', quote.fee)
 
 // Propose transaction
-const proposal = await alice.propose(tx, {
-  amountToApprove: quote.fee * 150n / 100n // 50% buffer
-})
+const proposal = await alice.propose(tx)
 console.log('SafeOp Hash:', proposal.proposalId)
 console.log('Confirmations:', proposal.confirmations, '/', proposal.threshold)
 
@@ -255,10 +253,7 @@ const alice = new WalletAccountMultisigSafe(aliceSeed, "0'/0/0", {
 })
 
 // Propose with token approval for gas
-const quote = await alice.quoteSendTransaction(tx)
-const proposal = await alice.propose(tx, {
-  amountToApprove: quote.fee * 150n / 100n
-})
+const proposal = await alice.propose(tx)
 ```
 
 ### Sponsored Mode (Gasless)
@@ -279,7 +274,7 @@ const alice = new WalletAccountMultisigSafe(aliceSeed, "0'/0/0", {
   }
 })
 
-// No amountToApprove needed - sponsor pays gas!
+// Sponsor pays gas!
 const proposal = await alice.propose(tx)
 console.log('SafeOp Hash:', proposal.proposalId)
 
@@ -341,8 +336,7 @@ const quote = await bob.quoteSendTransaction(tx, {
 
 const result = await bob.propose(tx, {
   isSponsored: false,
-  paymasterTokenAddress: '0xUSDT...',
-  amountToApprove: quote.fee * 150n / 100n
+  paymasterTokenAddress: '0xUSDT...'
 })
 ```
 
@@ -353,15 +347,13 @@ const result = await bob.propose(tx, {
 | `isSponsored` | Override to sponsored mode (`true`) or ERC-20 mode (`false`) |
 | `sponsorshipPolicyId` | Override sponsorship policy ID (for sponsored mode) |
 | `paymasterTokenAddress` | Override token address for gas payment (for ERC-20 mode) |
-| `amountToApprove` | Token amount to approve for paymaster (for ERC-20 mode) |
 
 ### Owner Management
 
 ```javascript
 // Add new owner (optionally set new threshold)
 const proposal = await alice.addOwner('0xNewOwner...', {
-  threshold: 2, // optional, defaults to current threshold
-  amountToApprove: fee * 200n / 100n
+  threshold: 2 // optional, defaults to current threshold
 })
 
 // Remove owner (optionally set new threshold)
