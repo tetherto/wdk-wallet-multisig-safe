@@ -47,7 +47,8 @@ export default class WalletManagerMultisigSafe extends WalletManager {
      */
     getFeeRates(): Promise<FeeRates>;
     /**
-     * Disposes all the wallet accounts, erasing their private keys from the memory.
+     * Disposes the wallet accounts, erasing their private keys from memory. The seed is never wiped: the manager keeps it
+     * in `seed`, and a seed phrase string you passed in stays in memory until it is garbage collected.
      */
     dispose(): void;
 }
