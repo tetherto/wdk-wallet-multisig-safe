@@ -26,6 +26,8 @@ import { afterEach, beforeEach, describe, expect, test, jest } from '@jest/globa
 
 import { WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
 
+import { ValueError } from '@tetherto/wdk-wallet'
+
 import {
   WalletAccountMultisigSafe,
   WalletAccountReadOnlyMultisigSafe,
@@ -591,7 +593,8 @@ describe('WalletAccountMultisigSafe', () => {
 
       expect(account._createSafeOperation).toHaveBeenCalledWith(
         expect.objectContaining({ to: MOCK_SAFE_ADDRESS, value: '0', data: '0x' }),
-        { customNonce: 42n }
+        { customNonce: 42n },
+        undefined
       )
     })
 
@@ -976,6 +979,42 @@ describe('WalletAccountMultisigSafe', () => {
         expect(coordinator.submitProposal).toHaveBeenCalledTimes(1)
         expect(coordinator.submitProposal.mock.calls[0][1].userOperation.paymasterAndData).toBe(PAYMASTER_ADDRESS + PAYMASTER_DATA)
         expect(coordinator.submitProposal.mock.calls[0][1].userOperation.signature).toBe('0xsignature')
+      })
+
+      test('should approve exactly the transferMaxFee to the paymaster in a proposed transfer', async () => {
+        const createPaymasterUserOperationMock = mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: PAYMASTER_ADDRESS + PAYMASTER_DATA })
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS, transferMaxFee: 600_000n })
+        erc20Account.quoteSendTransaction = jest.fn().mockResolvedValue({ fee: 600_000n })
+
+        const result = await erc20Account.proposeTransfer({ token: PAYMASTER_TOKEN_ADDRESS, recipient: ACCOUNT_2.address, amount: 1000n })
+
+        expect(result.status).toBe('pending')
+        expect(createPaymasterUserOperationMock.mock.calls[0][4]).toEqual(expect.objectContaining({ approveAmount: 600_000n }))
+      })
+
+      test('should keep the default approval in a proposal without a transferMaxFee', async () => {
+        const createPaymasterUserOperationMock = mockPaymasterResult({ ...DUMMY_USER_OPERATION, paymasterAndData: PAYMASTER_ADDRESS + PAYMASTER_DATA })
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS })
+
+        await erc20Account.propose(TRANSACTION)
+
+        expect(createPaymasterUserOperationMock.mock.calls[0][4].approveAmount).toBeUndefined()
+      })
+
+      test('should refuse a proposed transfer whose token cost exceeds the transferMaxFee approved to the paymaster', async () => {
+        jest.spyOn(Erc7677Paymaster.prototype, 'createPaymasterUserOperation').mockRejectedValue(
+          new AbstractionKitError('PAYMASTER_ERROR', 'overrides.approveAmount (600000) is below the token cost of the UserOperation (700000). The approval would not cover the fee.', {
+            context: { approveAmount: '600000', tokenCost: '700000' }
+          })
+        )
+        const erc20Account = createPaymasterAccount({ paymasterAddress: PAYMASTER_ADDRESS, paymasterTokenAddress: PAYMASTER_TOKEN_ADDRESS, transferMaxFee: 600_000n })
+        erc20Account.quoteSendTransaction = jest.fn().mockResolvedValue({ fee: 600_000n })
+
+        const promise = erc20Account.proposeTransfer({ token: PAYMASTER_TOKEN_ADDRESS, recipient: ACCOUNT_2.address, amount: 1000n })
+
+        await expect(promise).rejects.toThrow(ValueError)
+        await expect(promise).rejects.toThrow("The estimated fee exceeds the configured 'transferMaxFee' option.")
+        expect(coordinator.submitProposal).not.toHaveBeenCalled()
       })
 
       test('should not check the paymaster address of a sponsored operation', async () => {
