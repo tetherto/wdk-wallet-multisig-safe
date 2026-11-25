@@ -95,7 +95,7 @@ import { ConfigurationError } from './errors.js'
  * @property {false} [useNativeCoins] - Whether to use native coins instead of a paymaster to pay for gas fees.
  * @property {string} [paymasterAddress] - Custom deployment of a supported paymaster, so the fee decoder accepts it. When set, the paymaster RPC must return this paymaster.
  * @property {string} paymasterTokenAddress - The address of the paymaster token.
- * @property {number | bigint} [transferMaxFee] - Maximum fee for transfers
+ * @property {number | bigint} [transferMaxFee] - Maximum fee for proposed transfers, in paymaster token base units. When set, it is also the amount a proposed transfer approves to the paymaster.
  */
 
 /**
@@ -681,14 +681,15 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @protected
    * @param {EvmTransaction | EvmTransaction[]} transaction - The transaction(s)
    * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
+   * @param {bigint} [approveAmount] - In token mode, the amount the operation approves to the paymaster instead of the paymaster client's default (twice the token cost).
    * @returns {Promise<BuiltUserOperation>} The built operation and signing context.
    */
-  async _createSafeOperation (transaction, config) {
+  async _createSafeOperation (transaction, config, approveAmount) {
     const transactions = Array.isArray(transaction) ? transaction : [transaction]
     const calls = WalletAccountReadOnlyMultisigSafe._toMetaTransactions(transactions)
     const txOverrides = WalletAccountReadOnlyMultisigSafe._extractGasOverrides(transactions[0])
 
-    return await this._buildUserOperation(calls, { ...this._config, ...config }, txOverrides)
+    return await this._buildUserOperation(calls, { ...this._config, ...config }, txOverrides, approveAmount)
   }
 
   /**
@@ -698,9 +699,10 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
    * @param {import('abstractionkit').MetaTransaction[]} calls - The meta-transactions to include in the UserOperation.
    * @param {MultisigSafeWalletConfig} config - The merged wallet configuration.
    * @param {Object} [txOverrides] - Optional gas overrides extracted from the input transaction(s).
+   * @param {bigint} [approveAmount] - In token mode, the amount the operation approves to the paymaster instead of the paymaster client's default (twice the token cost).
    * @returns {Promise<BuiltUserOperation>} The built operation, signing context, and (in token mode) the paymaster quote.
    */
-  async _buildUserOperation (calls, config, txOverrides = {}) {
+  async _buildUserOperation (calls, config, txOverrides = {}, approveAmount) {
     const smartAccount = await this._getSmartAccount()
     const chainId = this._config.chainId
 
@@ -728,7 +730,7 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
       return { userOp: baseUserOp, smartAccount, mode, chainId }
     }
 
-    const { userOp, tokenQuote } = await this._applyPaymasterToUserOp({ mode, smartAccount, userOp: baseUserOp, config, chainId, txOverrides })
+    const { userOp, tokenQuote } = await this._applyPaymasterToUserOp({ mode, smartAccount, userOp: baseUserOp, config, chainId, txOverrides, approveAmount })
     return { userOp, smartAccount, mode, chainId, tokenQuote }
   }
 
@@ -930,7 +932,12 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
   }
 
   /** @private */
-  async _applyPaymasterToUserOp ({ mode, smartAccount, userOp, config, chainId, txOverrides = {} }) {
+  static _isApproveBelowCostError (error) {
+    return error instanceof AbstractionKitError && error.context?.approveAmount !== undefined && error.context?.tokenCost !== undefined
+  }
+
+  /** @private */
+  async _applyPaymasterToUserOp ({ mode, smartAccount, userOp, config, chainId, txOverrides = {}, approveAmount }) {
     const paymaster = this._getPaymaster(config.paymasterUrl, { chainId: BigInt(chainId) })
 
     const context = mode === PaymasterMode.TOKEN
@@ -941,6 +948,7 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
     if (txOverrides.callGasLimit !== undefined) paymasterOverrides.callGasLimit = txOverrides.callGasLimit
     if (txOverrides.verificationGasLimit !== undefined) paymasterOverrides.verificationGasLimit = txOverrides.verificationGasLimit
     if (txOverrides.preVerificationGas !== undefined) paymasterOverrides.preVerificationGas = txOverrides.preVerificationGas
+    if (mode === PaymasterMode.TOKEN && approveAmount !== undefined) paymasterOverrides.approveAmount = approveAmount
 
     const result = await paymaster.createPaymasterUserOperation(
       smartAccount,

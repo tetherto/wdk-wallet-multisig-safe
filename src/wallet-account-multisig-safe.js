@@ -332,6 +332,14 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
       if (fee > transferMaxFee) {
         throw new ValueError("The estimated fee exceeds the configured 'transferMaxFee' option.")
       }
+
+      return await this._submitTransaction(tx, config, autoExecute, BigInt(transferMaxFee)).catch((error) => {
+        if (WalletAccountReadOnlyMultisigSafe._isApproveBelowCostError(error)) {
+          throw new ValueError("The estimated fee exceeds the configured 'transferMaxFee' option.", { cause: error })
+        }
+
+        throw error
+      })
     }
 
     return await this._submitTransaction(tx, config, autoExecute)
@@ -597,13 +605,13 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
    * @returns {Promise<MultisigProposal>} The proposal result
    * @throws {SignerError} If the signer is not an owner of the Safe.
    */
-  async _propose (transaction, config) {
+  async _propose (transaction, config, approveAmount) {
     await this.validateSignerIsOwner()
 
     const threshold = await this.getThreshold()
     const chainId = this._config.chainId
 
-    const { userOp, smartAccount } = await this._createSafeOperation(transaction, config)
+    const { userOp, smartAccount } = await this._createSafeOperation(transaction, config, approveAmount)
 
     const signer = await this._buildSigner()
     userOp.signature = await smartAccount.signUserOperationWithSigners(userOp, [signer], chainId)
@@ -621,8 +629,8 @@ export default class WalletAccountMultisigSafe extends WalletAccountReadOnlyMult
   }
 
   /** @private */
-  async _submitTransaction (tx, config, autoExecute) {
-    const proposal = await this._propose(tx, config)
+  async _submitTransaction (tx, config, autoExecute, approveAmount) {
+    const proposal = await this._propose(tx, config, approveAmount)
 
     if (autoExecute && proposal.confirmations >= proposal.threshold) {
       const transaction = await this._executeProposal(proposal.proposalId, { ...this._config, ...config })

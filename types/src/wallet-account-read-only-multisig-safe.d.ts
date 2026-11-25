@@ -287,9 +287,10 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @protected
      * @param {EvmTransaction | EvmTransaction[]} transaction - The transaction(s)
      * @param {Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>} [config] - If set, overrides the paymaster options defined in the wallet account configuration.
+     * @param {bigint} [approveAmount] - In token mode, the amount the operation approves to the paymaster instead of the paymaster client's default (twice the token cost).
      * @returns {Promise<BuiltUserOperation>} The built operation and signing context.
      */
-    protected _createSafeOperation(transaction: EvmTransaction | EvmTransaction[], config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>): Promise<BuiltUserOperation>;
+    protected _createSafeOperation(transaction: EvmTransaction | EvmTransaction[], config?: Partial<MultisigSafeWalletPaymasterTokenConfig | MultisigSafeWalletSponsoredConfig | MultisigSafeWalletNativeCoinsConfig>, approveAmount?: bigint): Promise<BuiltUserOperation>;
     /**
      * Builds a UserOperation with paymaster fields applied.
      *
@@ -297,9 +298,10 @@ export default class WalletAccountReadOnlyMultisigSafe extends WalletAccountRead
      * @param {import('abstractionkit').MetaTransaction[]} calls - The meta-transactions to include in the UserOperation.
      * @param {MultisigSafeWalletConfig} config - The merged wallet configuration.
      * @param {Object} [txOverrides] - Optional gas overrides extracted from the input transaction(s).
+     * @param {bigint} [approveAmount] - In token mode, the amount the operation approves to the paymaster instead of the paymaster client's default (twice the token cost).
      * @returns {Promise<BuiltUserOperation>} The built operation, signing context, and (in token mode) the paymaster quote.
      */
-    protected _buildUserOperation(calls: import("abstractionkit").MetaTransaction[], config: MultisigSafeWalletConfig, txOverrides?: any): Promise<BuiltUserOperation>;
+    protected _buildUserOperation(calls: import("abstractionkit").MetaTransaction[], config: MultisigSafeWalletConfig, txOverrides?: any, approveAmount?: bigint): Promise<BuiltUserOperation>;
     /**
      * Builds a UserOperation and returns its estimated gas cost.
      *
@@ -499,7 +501,7 @@ export type MultisigSafeWalletPaymasterTokenConfig = {
      */
     paymasterTokenAddress: string;
     /**
-     * - Maximum fee for transfers
+     * - Maximum fee for proposed transfers, in paymaster token base units. When set, it is also the amount a proposed transfer approves to the paymaster.
      */
     transferMaxFee?: number | bigint;
 };
